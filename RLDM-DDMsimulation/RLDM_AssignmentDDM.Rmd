@@ -1,0 +1,188 @@
+---
+title: "RLDM_DDMAssignment"
+author: "Larissa Weyler"
+date: "2024-05-14"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## DD Model
+
+```{r}
+DDM <- function(threshold, evidenceLeft, evidenceRight, noise, bias=0.5, truth) {
+  act <- threshold*bias
+  time <- 0
+  while ((act < threshold) & (act > 0)) {
+    act <- act + (evidenceLeft - evidenceRight) + noise
+    time <- time + 1
+  }  
+  decision <- ifelse(act >= threshold, "left", "right")
+  accuracy <- ifelse(decision == truth, "correct", "incorrect")
+  results <- list("time" = time, "decision" = decision, "accuracy" = accuracy, "noise" = noise)
+  return(results) 
+}
+```
+
+## Experiment
+
+### Setting up matrix
+
+```{r}
+ntrials <- 500
+nparticipants <- 15
+
+resultsThreshold <- data.frame(matrix(nrow = ntrials*nparticipants, ncol = 9, dimnames= list (NULL, c("participant", "condition", "time", "decision", "accuracy", "threshold", "bias", "drift", "noise"))))
+
+resultsDrift <- data.frame(matrix(nrow = ntrials*nparticipants, ncol = 9, dimnames= list (NULL, c("participant", "condition", "time", "decision", "accuracy", "threshold", "bias", "drift", "noise"))))
+```
+
+### Varying threshold
+
+Simulating data with varying thresholds per condition.
+
+```{r}
+for (i in 1:nparticipants) { 
+  bias <- rnorm(1, mean = 0.5, sd = 0.1) # every person has slightly different bias, but on average there is no bias (=0.5)
+  for (j in 1:ntrials){
+    condition <- sample(c("cheetah", "turtle"), 1) # randomly choose condition
+    noise <- rnorm(1, sd = 1) 
+    evidenceCorrect <- rnorm(1, mean = 0.1, sd = 0.05) # how much evidence is increased for correct decision (difficulty of trial)
+    truth <- sample(c("left", "right"), 1) # determine correct decision
+    threshold <- ifelse(condition == "cheetah", rnorm(1, mean = 10, sd = 1), rnorm(1, mean = 20, sd = 1)) # vary threshold based on condition (either cheetah or not)
+    if (truth == "left") { # bias correct decision
+        evidenceLeft <- 0.2 + evidenceCorrect # base evidence rate + varyingly increase in evidence for right decision and decrease for wrong decision
+        evidenceRight <- 0.2 - evidenceCorrect 
+    } else if (truth == "right") {
+      evidenceLeft <- 0.2 - evidenceCorrect
+      evidenceRight <- 0.2 + evidenceCorrect
+    }
+    trialResults <- DDM(threshold, # temporarily save results of trial
+                        evidenceLeft, 
+                        evidenceRight, 
+                        noise,
+                        bias, 
+                        truth)
+    resultsThreshold[(i - 1) * ntrials + j, ] <- c(i, condition, 
+                                          trialResults$time, 
+                                          trialResults$decision, 
+                                          trialResults$accuracy, 
+                                          threshold, 
+                                          bias, 
+                                          evidenceLeft - evidenceRight,
+                                          noise) #assign results of trial to dataframe
+
+  }
+resultsThreshold$time <- as.numeric(resultsThreshold$time)
+}
+```
+
+### Varying drift rate
+
+Simulating data with varying drift rate per condition.
+
+```{r}
+for (i in 1:nparticipants) {
+  bias <- rnorm(1, mean = 0.5, sd = 0.1)
+  threshold <- rnorm(1, mean = 10, sd = 2) # fixed threshold (cautiousness) per person
+  for (j in 1:ntrials){
+    condition <- sample(c("cheetah", "turtle"), 1)
+    noise <- rnorm(1, sd = 1)
+    evidenceCorrect <- rnorm(1, mean = 0.1, sd = 0.05)
+    truth <- sample(c("left", "right"), 1)  
+    evidenceCondition <- ifelse(condition=="cheetah", rnorm(1, mean=0.5, sd=0.05), rnorm(1, mean=0.1, sd=0.05)) # evidence affected by condition
+    if (truth == "left") {
+        evidenceLeft <- evidenceCondition + evidenceCorrect # combine evidence rate based on condition and correctness of choice
+        evidenceRight <- evidenceCondition - evidenceCorrect 
+    } else if (truth == "right") {
+      evidenceLeft <- evidenceCondition - evidenceCorrect
+      evidenceRight <- evidenceCondition + evidenceCorrect
+    
+    }
+    trialResults <- DDM(threshold, 
+                        evidenceLeft, 
+                        evidenceRight, 
+                        noise, 
+                        bias, 
+                        truth)
+    resultsDrift[(i - 1) * ntrials + j, ] <- c(i, condition, 
+                                          trialResults$time, 
+                                          trialResults$decision, 
+                                          trialResults$accuracy, 
+                                          threshold, 
+                                          bias, 
+                                          evidenceLeft - evidenceRight,
+                                          noise)
+
+  }
+resultsDrift$time <- as.numeric(resultsDrift$time)
+}
+```
+
+### Evaluate
+
+#### Plots
+
+```{r}
+library(ggplot2)
+
+# varying threshold
+resultsThreshHist <- ggplot(resultsThreshold, aes(x = time)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~ condition) +
+  papaja::theme_apa() +
+  labs(title = "Response Times by Condition",
+       x = "Response Time",
+       y = "Frequency") +
+  xlim(c(0,200)) + ylim(0,50) 
+
+resultsThreshHist
+
+# varying drift rate
+resultsDriftHist <- ggplot(resultsDrift, aes(x = time)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~ condition) +
+  papaja::theme_apa() +
+  labs(title = "Response Times by Condition",
+       x = "Response Time",
+       y = "Frequency")  +
+  xlim(c(0,200)) + ylim(0,50)
+resultsDriftHist
+```
+
+#### Summary statistics
+
+```{r}
+library(dplyr)
+
+summaryStatsThresh <- resultsThreshold %>%
+  group_by(condition) %>%
+  summarize(
+    mean_RT = mean(time),
+    Q1 = quantile(time, 0.25),
+    median_RT = median(time),
+    Q3 = quantile(time, 0.75)
+  )
+print(summaryStatsThresh)
+
+summaryStatsDrift <- resultsDrift %>%
+  group_by(condition) %>%
+  summarize(
+    mean_RT = mean(time),
+    Q1 = quantile(time, 0.25),
+    median_RT = median(time),
+    Q3 = quantile(time, 0.75)
+  )
+print(summaryStatsDrift)
+```
+
+### Save data
+
+```{r}
+write.csv(resultsThreshold, file = "DDMThresholdResults.csv", row.names = FALSE)
+write.csv(resultsDrift, file = "DDMDriftResults.csv", row.names = FALSE)
+```
