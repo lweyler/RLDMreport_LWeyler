@@ -1,0 +1,457 @@
+---
+title: "RLDM_Report"
+author: "Larissa Weyler"
+date: "2024-06-14"
+output: word_document
+---
+
+```{r settings, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r setup}
+
+setwd("~/University/Master Cognitive Neuroscience/Reinforcement Learning and Decision-Making -  Computational and Neural Mechanisms/Report/Code")
+
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+source("helper_functions.r")
+options(scipen = 999) # no scientific notation
+
+rawdata <- read.csv("dataset13.csv", sep = ",")
+
+# colors for the plots
+color1 <- "maroon4" 
+color2 <- "paleturquoise4"
+mycolors <- c(color1, color2) 
+```
+
+## Raw data exploration
+
+### Quick overview
+
+```{r}
+skimr::skim(rawdata)
+summary(rawdata)
+```
+
+### Sample size
+
+```{r}
+N <- length(unique(rawdata$ID))
+N
+```
+
+### Histogram of overall RT distribution
+
+```{r}
+
+ggplot(rawdata, aes(x = rt)) +
+  geom_histogram(binwidth = 5, fill = color2, color = color2) +
+  papaja::theme_apa() +
+  labs(x = "Response Time",
+       y = "Frequency") +
+  xlim(c(0,1500))
+```
+
+## Outliers
+
+### Outlier removal
+
+```{r}
+dataNO <- subset(rawdata, 
+                 rawdata$rt > (quantile(rawdata$rt, 0.25) - 1.5 * IQR(rawdata$rt)) 
+                 & rawdata$rt < (quantile(rawdata$rt, 0.75) + 1.5 * IQR(rawdata$rt)))
+```
+
+### Outlier inspection
+
+```{r}
+outliers <- anti_join(rawdata, dataNO)
+
+# overview
+skimr::skim(outliers)
+summary(outliers)
+
+# descriptives per participant
+outlierDesc <- matrix(nrow = 4, ncol = 12, 
+                      dimnames = list(c("N", "M rt", "MD rt", "M accuracy"), 1:12))
+
+for (i in 1:12) {
+  outlierDesc[1,i] <- sum(outliers$ID == i)
+  outlierDesc[2,i] <- mean(outliers$rt[outliers$ID == i])
+  outlierDesc[3,i] <- median(outliers$rt[outliers$ID == i])
+  outlierDesc[4,i] <- mean(outliers$correct[outliers$ID == i])
+}
+outlierDesc
+```
+
+## Cleaned data inspection
+
+```{r}
+# overview
+skimr::skim(dataNO)
+summary(dataNO)
+
+# descriptives per participant
+dataNoDesc <- matrix(nrow = 4, ncol = 12, 
+                     dimnames = list(c("N", "M rt", "MD rt", "M accuracy"), 1:12))
+
+for (i in 1:12) {
+  dataNoDesc[1,i] <- sum(dataNO$ID == i)
+  dataNoDesc[2,i] <- mean(dataNO$rt[dataNO$ID == i])
+  dataNoDesc[3,i] <- median(dataNO$rt[dataNO$ID == i])
+  dataNoDesc[4,i] <- mean(dataNO$correct[dataNO$ID == i])
+}
+dataNoDesc
+
+# descriptives per condition x correctness 
+conditions <- list(
+  list(name = "correct_0", filter = quo(correct == 0)),
+  list(name = "correct_1", filter = quo(correct == 1)),
+  list(name = "condition_1", filter = quo(condition == 1)),
+  list(name = "condition_2", filter = quo(condition == 2)),
+  list(name = "condition_1_correct_0", filter = quo(condition == 1 
+                                                    & correct == 0)),
+  list(name = "condition_1_correct_1", filter = quo(condition == 1 
+                                                    & correct == 1)),
+  list(name = "condition_2_correct_0", filter = quo(condition == 2 
+                                                    & correct == 0)),
+  list(name = "condition_2_correct_1", filter = quo(condition == 2 
+                                                    & correct == 1))
+)
+
+condSummary <- list()
+for (cond in conditions) {
+  filtered_data <- dataNO %>% filter(!!cond$filter)
+  condSummary[[cond$name]] <- summary(filtered_data)
+}
+condSummary
+```
+
+## RT and accuracy differences between conditions
+
+### Histograms of RTs by condition/correctness
+
+```{r}
+# histogram for RTs of correct/incorrect responses
+histCorrect <- ggplot(dataNO, aes(x = rt, group = factor(correct), 
+                                  fill = factor(correct))) +
+  geom_histogram(binwidth = 5, alpha = .6, position = "identity") +
+  papaja::theme_apa() +
+  labs(title = "Response Times by Correctness",
+       x = "Response Time",
+       y = "Frequency",
+       fill = "Accuracy") +
+  scale_fill_manual(values = mycolors,
+                    labels = c("Incorrect", "Correct")) +  
+  xlim(c(0,1500)) +
+  annotate("text", x = 50, y = Inf, label = "a", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 7) + 
+  coord_cartesian(clip = "off") 
+
+# histogram for RTs of the responsees of each condition
+histCond <- ggplot(dataNO, aes(x = rt, group = factor(condition), 
+                               fill = factor(condition)) )+
+  geom_histogram(binwidth = 5, alpha = .6, position = "identity") + 
+  papaja::theme_apa() +
+  labs(title = "Response Times by Condition",
+       x = "Response Time",
+       y = "Frequency",
+       fill = "Condition") +
+  scale_fill_manual(values = mycolors,
+                    labels = c("Cheetah", "Turtle")) +  
+  xlim(c(0,1500)) +
+  annotate("text", x = 50, y = Inf, label = "b", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 7)+
+  coord_cartesian(clip = "off") 
+
+# present them next to each other
+grid.arrange(histCorrect, histCond, ncol = 2)
+```
+
+### Plots of the accuracy by condition
+
+```{r}
+# barplot of accuracy by condition
+barAccuracy <- ggplot(dataNO, aes(x = factor(condition), fill = factor(correct))) +
+  geom_bar(position = "fill") +
+  papaja::theme_apa() +
+  labs(title = "Accuracy by Condition",
+       x = "Condition",
+       y = "Proportion Correct",
+       fill = "Accuracy") +
+  scale_x_discrete(labels = c("1" = "Cheetah", "2" = "Turtle")) +
+  scale_fill_manual(values = mycolors,
+                    labels = c("Incorrect", "Correct")) +
+  annotate("text", x = 1, y = Inf, label = "a", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 9)+
+  coord_cartesian(xlim = c(1,2), clip = "off") 
+
+# dotplot of RT vs accuracy
+dotRT <- ggplot(dataNO, aes(x = rt, y = factor(correct), color = factor(condition))) +
+  geom_point(position = position_jitter(height = 0.1), size = 2, alpha = 0.6) +
+  scale_color_manual(name = "Condition", values = mycolors, 
+                     labels = c("Cheetah", "Turtle")) +
+  papaja::theme_apa() +
+  labs(x = "Reaction Time", y = "Accuracy", 
+       title = "Reaction Time vs. Accuracy by Condition") +
+  scale_y_discrete(breaks = c(0, 1), labels = c("Incorrect", "Correct")) +
+  xlim(c(0, 1500)) +
+  annotate("text", x = 50, y = Inf, label = "b", size = 5, fontface = "bold",
+           vjust = -1.5, hjust = 8)+
+  coord_cartesian(clip = "off") 
+
+# arrange them 
+grid.arrange(barAccuracy, dotRT, ncol = 2, nrow = 1, widths = c(0.7,1))
+```
+
+### T-tests
+
+Paired t-tests to test whether the reaction times and accuracy differ between conditions. A paired Wilcoxon signed rank test would be an alternative that is similary powerful and more robust against non-normality, but due to aggregating the data normality should not be a problem.
+
+```{r}
+# difference of median rt between conditions
+aggregatedDat <- dataNO %>%
+  group_by(ID, condition) %>%
+  summarize(median_rt = median(rt), mean_acc = mean(correct), .groups = 'drop') 
+
+cond1Rt <- aggregatedDat %>% filter(condition == 1) %>% pull(median_rt)
+cond2Rt <- aggregatedDat %>% filter(condition == 2) %>% pull(median_rt)
+
+t.test(cond1Rt, cond2Rt, paired = TRUE) 
+
+# difference of mean accuracy between conditions
+cond1Acc <- aggregatedDat %>% filter(condition == 1) %>% pull(mean_acc)
+cond2Acc <- aggregatedDat %>% filter(condition == 2) %>% pull(mean_acc)
+
+t.test(cond1Acc, cond2Acc, paired = TRUE) 
+
+# alternative: Wilcoxon
+## wilcox.test(median_rt ~ condition, data = aggregatedDat, conf.int = TRUE, paired = TRUE) 
+## wilcox.test(mean_acc ~ condition, data = aggregatedDat, conf.int = TRUE, paired = TRUE) 
+```
+
+## Model fitting
+
+### Fitting model for each participant for each condition
+
+```{r}
+fitresults <- data.frame(ID = numeric(),
+                          condition = numeric(),
+                          s = numeric(),
+                          A = numeric(),
+                          ter = numeric(),
+                          b = numeric(),
+                          v1 = numeric())
+
+for (participant in 1:length(unique(dataNO$ID))) {
+  for (condition in 1:length(unique(dataNO$condition))) {
+    fitsubresults <- fit_data(dataNO[dataNO$ID == participant 
+                                     & dataNO$condition == condition,])
+    fitresults[nrow(fitresults) + 1,] <- c(participant, condition, 
+                                           unlist(fitsubresults))
+  }
+}
+
+fitresults
+```
+
+**Parameters:**
+
+`s` = *SD of drift rates* = This reflects variability in drift rates. However, as this parameter does not have an easily interpretable cognitive mapping, this parameter does not significantly differ between conditions in the provided datasets.
+
+`A` = *upper limit of starting point* = This reflects the starting point of the evidence accumulation process. It reflects bias or expectations for one choice.
+
+`ter` = *non-decision time* = This reflects the time necessary for processes that are not related to evidence integration. For example, the time it takes for activation of the motor cortex to result in the hand pressing the response button, or the time it takes for visual information to get from the stimulus to the visual cortex.
+
+`b` = *threshold* = The distance from 0 to the threshold. It reflects cautiousness: lower thresholds lead to faster responses but a higher error rate.
+
+`v1` = *drift rate* = The quality of the evidence or difficulty of the problem. Higher drift rates lead to faster and more accurate responses.
+
+### Parameter comparison
+
+Via paired Wilcoxon signed rank test because the parameters are not normally distributed.
+
+```{r}
+parameters <- c("s", "A", "ter", "b", "v1")
+paracomparison <- data.frame(Parameter = character(), tstatistic = numeric(), 
+                             pvalue = numeric(), stringsAsFactors = FALSE)
+
+for (para in parameters) { 
+  tresult <- wilcox.test(fitresults[fitresults$condition == 1, para],
+                         fitresults[fitresults$condition == 2, para], 
+                         paired = TRUE)
+  paracomparison <- rbind(paracomparison, 
+                          c(para, tresult$statistic, tresult$p.value))
+}
+colnames(paracomparison) <- c("parameter", "tstatistic", "pvalue")
+paracomparison
+```
+
+### Descriptives of parameters by condition
+
+```{r}
+results1 <- fitresults %>%
+  filter(condition == 1)
+skimr::skim(results1)
+
+results2 <- fitresults %>%
+  filter(condition == 2)
+skimr::skim(results2)
+```
+
+## Parameter plots
+
+### Boxplots of all parameters
+
+```{r}
+fitresults_long <- fitresults %>%
+  pivot_longer(cols = c(s, A, ter, b, v1), 
+               names_to = "parameter", values_to = "value")
+
+ggplot(fitresults_long, 
+       aes(x = factor(condition), y = value, fill = factor(condition))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(shape = 21, size = 1, position = position_jitter(0.2)) +
+  scale_x_discrete(labels = c("Cheetah", "Turtle")) +
+  facet_wrap(~ parameter, scales = "free_y",  
+             labeller = as_labeller(c("s" = "SD drift rate",
+                                      "A" = "Starting point",
+                                      "ter" = "Non-decision time",
+                                      "b" = "Threshold", 
+                                      "v1" = "Drift rate"))) +
+  scale_fill_manual(values = mycolors) +  
+  papaja::theme_apa() +
+  theme(legend.position = "none") +
+  labs(x = "Condition", y = "Value", title = "Parameter Distribution by Condition")
+```
+
+### Slope + boxplots for significant parameters
+
+```{r}
+# filter for significant parameters 
+significant_parameters <- fitresults_long %>%
+  filter(parameter %in% c("s", "b", "v1"))
+
+# plot
+ggplot(significant_parameters, 
+       aes(x = factor(condition), y = value, fill = factor(condition))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(shape = 21, size = 1, position = position_jitter(0.2)) +
+  geom_line(aes(group = ID), color = "darkgrey", alpha = 0.7) +  
+  scale_x_discrete(labels = c("Cheetah", "Turtle")) +
+  facet_wrap(~ parameter, scales = "free_y", 
+             labeller = as_labeller(c("s" = "SD drift rate", 
+                                      "A" = "Starting point",
+                                      "ter" = "Non-decision time",
+                                      "b" = "Threshold", 
+                                      "v1" = "Drift rate"))) +
+  scale_fill_manual(values = mycolors) +  
+  papaja::theme_apa() +
+  theme(legend.position = "none") +
+  labs(x = "Condition", y = "Value", 
+       title = "Significant Parameter Distribution by Condition") 
+```
+
+### Plot accumulation process 
+
+One trial of evidence accumulation using the average parameters per condition. Based on the DDM function developed during the workgroup, adapted to save current evidence of every time point of the accumulation process.
+
+```{r}
+# DDM function
+DDM <- function(b, v1, s, ter, A) {
+  act <- A
+  time <- ter
+  accumulation <- data.frame(time = numeric(), 
+                             activation = numeric(), 
+                             v1 = numeric(), 
+                             s = numeric(), 
+                             ter = numeric(), 
+                             A = numeric(), 
+                             condition = character())
+  i <- 1
+  while ((act < b) & (act > 0)) {
+    accumulation <- rbind(accumulation, c(time, act, v1, s, ter, A, condition))
+    drift <- rnorm(1, mean = v1, sd = s)
+    act <- act + drift
+    time <- time + 2 
+    i <- i + 1
+  }
+  colnames(accumulation) <- c("time", "activation", "v1", "s", "ter", "A", "condition")
+  return(accumulation) 
+}
+
+# fit DDM with average parameters
+accumulationCheetah <- DDM(b = 330, v1 = 0.747, s = 0.232, ter = 318, A = 309)
+accumulationTurtle <- DDM(b = 437, v1 = 0.688, s = 0.158, ter = 235, A =  276)
+
+# plot evidence accumulation
+ggplot() +
+  geom_line(data = accumulationCheetah, 
+            aes(x = time, y = activation), color = color1, linewidth = 0.8) +
+  geom_line(data = accumulationTurtle, 
+            aes(x = time, y = activation), color = color2, linewidth = 0.8) +
+  geom_hline(yintercept = c(309, 276), linetype = "dotted", color = mycolors) +  
+  geom_hline(yintercept = c(330, 437), linetype = "dashed", color = mycolors) +  
+  geom_text(aes(x = max(accumulationTurtle$time) + 50, y = c(309, 330), 
+                label = c("Bias Cheetah", "Threshold Cheetah"), 
+                color = color1), hjust = 0) +
+  geom_text(aes(x = max(accumulationTurtle$time) + 50, y = c(276, 437), 
+                label = c("Bias Turtle", "Threshold Turtle"), 
+                color = color2), hjust = 0) +
+  geom_text(data = accumulationCheetah[1,], 
+            aes(x = time, y = activation, label = "Cheetah"), 
+            color = color1, vjust = -1.4, hjust = 0.8) +
+  geom_text(data = accumulationTurtle[1,], 
+            aes(x = time, y = activation, label = "Turtle"), 
+            color = color2, vjust = -2.4, hjust = -2.6) +
+  labs(title = "Accumulation Process",
+       x = "Time",
+       y = "Activation",
+       color = "Condition") +
+  scale_color_manual(name = "Condition", values = mycolors, 
+                     labels = c("Cheetah", "Turtle")) +
+  papaja::theme_apa() +
+  theme(legend.position = "none", plot.margin = unit(c(0.4, 4, 0.4, 0.4), "cm")) +
+  coord_cartesian(xlim = c(0, max(accumulationTurtle$time) + 10), clip = "off") +
+  scale_x_continuous(n.breaks = 6) + 
+  scale_y_continuous(limits = c(250,450))
+```
+
+### Correlation plot of the parameters
+
+```{r}
+# color palette for degree of correlation
+color_palette <- colorRampPalette(c(color1, "white", color2))(200)
+
+# correlation matrix
+cor_matrix <- cor(fitresults[,3:7])
+
+# plot
+corrplot::corrplot(cor_matrix, method = "circle", type = "upper", 
+                  tl.col = "black", tl.srt = 45, 
+                  addCoef.col = "black", number.cex = 0.7, 
+                  col = color_palette,
+                  title = "Correlation Plot of Parameters",
+                  mar = c(0,0,1,0)) 
+mtext("a", side = 3, line = 2.9, adj = 0, cex = 1.5, font = 2)
+```
+
+### Correlation of just v1 and b
+
+```{r}
+ggplot(fitresults, aes(x = v1, y = b, color = factor(condition)))+
+  geom_point(size = 4) +
+  scale_color_manual(name = "Condition", values = mycolors, 
+                     labels = c("Cheetah", "Turtle")) +
+  papaja::theme_apa() +
+  labs(x = "Drift rate", y = "Threshold", 
+       title = "Correlation Drift Rate and Threshold") +
+  theme(plot.margin = unit(c(0.4, 0, 0.4, 0.6), "cm")) +  
+  annotate("text", x = 0.6, y = Inf, label = "b", size = 5, 
+           fontface = "bold", vjust = -1.5, hjust = 7)+
+  coord_cartesian(xlim = c(0.6,0.85), clip = "off") 
+```
